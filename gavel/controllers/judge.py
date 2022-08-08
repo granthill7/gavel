@@ -161,10 +161,17 @@ def preferred_items(annotator):
 
     This method uses a variety of strategies to try to select good candidate
     projects.
+
+    Algorithm filters list down by the following criteria in order. If a criteria returns 0 results, it is skipped
+    1. Finds all projects (items) that have not been ignored by judge (Annotator)
+    2. Selects prioritized projects
+    3. Selects projects that have not been assigned a judge in the past 5 minutes (time can be changed)
+    4. Selects projects that have not received 2 views (minimum amount of views can be changed)
     '''
     items = []
     ignored_ids = {i.id for i in annotator.ignore}
 
+    # Removes ignored items
     if ignored_ids:
         available_items = Item.query.filter(
             (Item.active == True) & (~Item.id.in_(ignored_ids))
@@ -172,18 +179,23 @@ def preferred_items(annotator):
     else:
         available_items = Item.query.filter(Item.active == True).all()
 
+    # First finds manually prioritized items
     prioritized_items = [i for i in available_items if i.prioritized]
 
     items = prioritized_items if prioritized_items else available_items
 
+    # Prioritizes projects that have not had a judge assigned in the last TIMEOUT minutes (currently 5)
     annotators = Annotator.query.filter(
         (Annotator.active == True) & (Annotator.next != None) & (Annotator.updated != None)
     ).all()
+    # busy = project IDs that have a judge assigned in the past TIMEOUT minutes (currently 5)
     busy = {i.next.id for i in annotators if \
         (datetime.utcnow() - i.updated).total_seconds() < settings.TIMEOUT * 60}
+    # nonbusy = projects that currently do not have a judge (not in busy)
     nonbusy = [i for i in items if i.id not in busy]
     preferred = nonbusy if nonbusy else items
 
+    # Selects projects from preferred list that do not have MIN_VIEWS (currently 2)
     less_seen = [i for i in preferred if len(i.viewed) < settings.MIN_VIEWS]
 
     return less_seen if less_seen else preferred
